@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kütüphane Yönetim - Admin Paneli</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 750px; }
+        h2 { color: #333; text-align: center; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; display: flex; flex-direction: column; }
+        label { font-weight: bold; margin-bottom: 5px; color: #555; }
+        input { padding: 10px; font-size: 15px; border: 1px solid #ccc; border-radius: 6px; outline: none; }
+        button { padding: 12px; font-size: 16px; background-color: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        button:hover { background-color: #45a049; }
+        .btn-delete { background-color: #e53935; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-delete:hover { background-color: #c62828; }
+        .msg { padding: 10px; border-radius: 6px; font-weight: bold; margin-bottom: 15px; display: none; text-align: center; }
+        .msg-basari { background-color: #c8e6c9; color: #2e7d32; }
+        .msg-hata { background-color: #ffcdd2; color: #b71c1c; }
+        table { width: 100%; border-collapse: collapse; margin-top: 25px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; font-size: 14px; }
+        th { background-color: #f8f9fa; color: #333; }
+        .back-link { display: block; text-align: center; margin-top: 20px; color: #0066cc; text-decoration: none; font-weight: bold; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Kütüphane Admin Paneli<br><span style="font-size: 15px; color: #666;">Yeni Kitap Ekleme ve Stok Yönetimi</span></h2>
+    
+    <div id="msgBox" class="msg"></div>
+
+    <div class="form-group">
+        <label>Kitap Barkodu:</label>
+        <input type="text" id="barkod" placeholder="Örn: 8683">
+    </div>
+    <div class="form-group">
+        <label>Kitap Adı:</label>
+        <input type="text" id="kitapAdi" placeholder="Örn: Nutuk">
+    </div>
+    <div class="form-group">
+        <label>Yazar:</label>
+        <input type="text" id="yazar" placeholder="Örn: Mustafa Kemal Atatürk">
+    </div>
+    <div class="form-group">
+        <label>Stok Adedi:</label>
+        <input type="number" id="stok" value="1" min="1">
+    </div>
+    
+    <button onclick="kitapEkle()">Kitabı Kaydet / Ekle</button>
+
+    <h3 style="margin-top: 30px;">Kayıtlı Kitaplar Listesi</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Barkod</th>
+                <th>Kitap Adı</th>
+                <th>Yazar</th>
+                <th>Stok</th>
+                <th>İşlem</th>
+            </tr>
+        </thead>
+        <tbody id="kitapListesi">
+        </tbody>
+    </table>
+
+    <a href="/" class="back-link">← Ana Sayfaya (Kütüphane Otomasyonuna) Dön</a>
+</div>
+
+<script>
+    async function kitaplariGetir() {
+        const res = await fetch('/api/tum-kitaplar');
+        const data = await res.json();
+        const liste = document.getElementById('kitapListesi');
+        liste.innerHTML = '';
+        
+        if (data.basarili) {
+            data.kitaplar.forEach(k => {
+                liste.innerHTML += `<tr>
+                    <td>${k.barkod}</td>
+                    <td>${k.kitap_adi}</td>
+                    <td>${k.yazar}</td>
+                    <td><b>${k.stok}</b></td>
+                    <td><button class="btn-delete" onclick="kitapSil(${k.id}, '${k.kitap_adi}')">Sil</button></td>
+                </tr>`;
+            });
+        }
+    }
+
+    async function kitapEkle() {
+        const barkod = document.getElementById('barkod').value.trim();
+        const kitap_adi = document.getElementById('kitapAdi').value.trim();
+        const yazar = document.getElementById('yazar').value.trim();
+        const stok = document.getElementById('stok').value;
+        const msgBox = document.getElementById('msgBox');
+
+        const res = await fetch('/api/kitap-ekle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ barkod, kitap_adi, yazar, stok })
+        });
+        const data = await res.json();
+
+        msgBox.style.display = 'block';
+        msgBox.innerText = data.mesaj;
+        msgBox.className = 'msg ' + (data.basarili ? 'msg-basari' : 'msg-hata');
+
+        if (data.basarili) {
+            document.getElementById('barkod').value = '';
+            document.getElementById('kitapAdi').value = '';
+            document.getElementById('yazar').value = '';
+            document.getElementById('stok').value = '1';
+            kitaplariGetir();
+        }
+    }
+
+    async function kitapSil(id, kitapAdi) {
+        if (!confirm(`'${kitapAdi}' adlı kitabı silmek istediğinize emin misiniz?`)) return;
+
+        const res = await fetch('/api/kitap-sil', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id })
+        });
+        const data = await res.json();
+
+        const msgBox = document.getElementById('msgBox');
+        msgBox.style.display = 'block';
+        msgBox.innerText = data.mesaj;
+        msgBox.className = 'msg ' + (data.basarili ? 'msg-basari' : 'msg-hata');
+
+        if (data.basarili) {
+            kitaplariGetir();
+        }
+    }
+
+    kitaplariGetir();
+</script>
+</body>
+</html>

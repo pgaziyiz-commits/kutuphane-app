@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Akıllı Kütüphane Otomasyonu</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 600px; text-align: center; }
+        h2 { color: #333; margin-bottom: 20px; }
+        .status-box { padding: 12px; background-color: #e3f2fd; color: #0d47a1; border-radius: 8px; font-weight: bold; margin-bottom: 15px; }
+        .msg-box { padding: 10px; border-radius: 6px; font-weight: bold; margin-bottom: 15px; display: none; }
+        .msg-hata { background-color: #ffcdd2; color: #b71c1c; }
+        .msg-uyari { background-color: #ffe0b2; color: #e65100; }
+        .msg-bilgi { background-color: #bbdefb; color: #0d47a1; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        input[type="text"] { flex: 1; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; outline: none; }
+        button { padding: 12px 20px; font-size: 16px; background-color: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #45a049; }
+        ul { list-style: none; padding: 0; text-align: left; max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; }
+        li { padding: 10px 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; }
+        .type-odunc { color: #2e7d32; font-weight: bold; }
+        .type-iade { color: #c62828; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>80. Yıl Teknoloji ve Bilişim Grubu<br>Akıllı Kütüphane Sistemi</h2>
+    <div id="status" class="status-box">Lütfen Öğrenci Kartınızı Okutun</div>
+    <div id="msg" class="msg-box"></div>
+
+    <div class="input-group">
+        <input type="text" id="kodGiris" placeholder="Kod (NFC / Barkod) Okutun..." autofocus autocomplete="off">
+        <button onclick="veriIsle()">İşlem Yap</button>
+    </div>
+
+    <h3 style="text-align: left; margin-bottom: 5px;">Sepet:</h3>
+    <ul id="sepetListesi"></ul>
+</div>
+
+<script>
+    let aktifOgrenci = null;
+    let sepet = [];
+    let msgTimer = null;
+
+    const kodGiris = document.getElementById('kodGiris');
+    const statusBox = document.getElementById('status');
+    const msgBox = document.getElementById('msg');
+    const sepetListesi = document.getElementById('sepetListesi');
+
+    kodGiris.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') veriIsle();
+    });
+
+    function mesajGoster(metin, tur = 'bilgi') {
+        clearTimeout(msgTimer);
+        msgBox.className = 'msg-box msg-' + tur;
+        msgBox.innerText = metin;
+        msgBox.style.display = 'block';
+        msgTimer = setTimeout(() => { msgBox.style.display = 'none'; }, 8000); // 8 saniye ekranda kalır
+    }
+
+    async function veriIsle() {
+        const giris = kodGiris.value.trim();
+        kodGiris.value = '';
+        if (!giris) return;
+
+        // 1. Oturum Açma
+        if (!aktifOgrenci) {
+            const res = await fetch('/api/ogrenci-sorgula', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: giris })
+            });
+            const data = await res.json();
+            if (data.basarili) {
+                aktifOgrenci = data.ogrenci;
+                statusBox.innerText = `Oturum Açıldı: Hoşgeldin, ${aktifOgrenci.ad_soyad}`;
+                statusBox.style.backgroundColor = '#c8e6c9';
+                mesajGoster(`Hoşgeldin ${aktifOgrenci.ad_soyad}, kitap barkodlarını okutabilirsin.`);
+            } else {
+                mesajGoster(data.mesaj, 'hata');
+            }
+            return;
+        }
+
+        // 2. Oturumu Kapatma (Kart tekrar okutulduğunda)
+        if (giris === aktifOgrenci.nfc_uid) {
+            const res = await fetch('/api/islemi-tamamla', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ogrenci_id: aktifOgrenci.id, sepet: sepet })
+            });
+            const data = await res.json();
+            mesajGoster(data.mesaj, data.basarili ? 'bilgi' : 'hata');
+            oturumuKapat();
+            return;
+        }
+
+        // 3. Barkod İşleme (Ekleme / Yanlışsa Sepetten Çıkarma)
+        const res = await fetch('/api/barkod-sorgula', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ barkod: giris, ogrenci_id: aktifOgrenci.id })
+        });
+        const data = await res.json();
+
+        if (!data.basarili) {
+            mesajGoster(data.mesaj, 'uyari');
+            return;
+        }
+
+        // Sepette var mı kontrol et (Varysa SİL)
+        const varIndex = sepet.findIndex(item => item.kitap_id === data.kitap_id);
+        if (varIndex !== -1) {
+            sepet.splice(varIndex, 1);
+            mesajGoster(`'${data.kitap_adi}' sepetten çıkarıldı.`, 'uyari');
+        } else {
+            sepet.push(data);
+            mesajGoster(`'${data.kitap_adi}' sepete eklendi.`);
+        }
+        sepetiGuncelle();
+    }
+
+    function sepetiGuncelle() {
+        sepetListesi.innerHTML = '';
+        sepet.forEach(item => {
+            const li = document.createElement('li');
+            if (item.tip === 'iade') {
+                li.innerHTML = `<span>${item.kitap_adi}</span> <span class="type-iade">[İADE]</span>`;
+            } else {
+                li.innerHTML = `<span>${item.kitap_adi}</span>`;
+            }
+            sepetListesi.appendChild(li);
+        });
+    }
+
+    function oturumuKapat() {
+        aktifOgrenci = null;
+        sepet = [];
+        sepetiGuncelle();
+        statusBox.innerText = 'Lütfen Öğrenci Kartınızı Okutun';
+        statusBox.style.backgroundColor = '#e3f2fd';
+    }
+</script>
+</body>
+</html>
